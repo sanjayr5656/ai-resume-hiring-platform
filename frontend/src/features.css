@@ -1,0 +1,627 @@
+/* Features Styles: Document Review Drawer, Multi-File Uploader, AI Career Assistant, Rankings */
+
+/* --- Status & Badges --- */
+.status.proof_provided { background: #e3ecf5; color: #2d5885; }
+.status.ai_checked { background: #f3e8ff; color: #6b21a8; }
+.status.claimed { background: #f0f1e9; color: #60664d; }
+.status.verified { background: #edf3d8; color: #657627; }
+.status.rejected { background: #fae9e5; color: #a44c3d; }
+
+.rank-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: #f1f2eb;
+  color: var(--forest);
+  margin-right: 8px;
+  border: 1px solid var(--line);
+}
+.rank-badge.top-1 { background: #d5e569; color: #26372d; font-weight: 800; }
+.rank-badge.top-3 { background: #eaf0d3; color: #435222; }
+
+.trust-pill {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 12px;
+  background: #f0f4e8;
+  color: #556b2f;
+  border: 1px solid #d4dec3;
+}
+.trust-pill.warning { background: #fff3e0; color: #b75507; border-color: #ffd8a8; }
+.trust-pill.danger { background: #fde8e8; color: #c81e1e; border-color: #f8b4b4; }
+
+/* --- Candidate Multi-File Proof Uploader --- */
+.cert-card {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 18px 20px;
+  margin-bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.cert-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.cert-card-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.cert-meta {
+  font-size: 11px;
+  color: var(--muted);
+}
+.cert-dropzone {
+  border: 2px dashed #d5d8cb;
+  background: #fbfbf8;
+  border-radius: 6px;
+  padding: 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.cert-dropzone:hover, .cert-dropzone.dragover {
+  border-color: #89964c;
+  background: #f5f6ed;
+}
+.cert-dropzone p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.cert-dropzone small {
+  display: block;
+  font-size: 10px;
+  color: #9ea094;
+  margin-top: 4px;
+}
+.proof-files-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+.proof-file-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #f5f6f0;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 8px 12px;
+  font-size: 12px;
+}
+.proof-file-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.proof-file-name {
+  font-weight: 500;
+  color: var(--ink);
+}
+.proof-file-size {
+  color: var(--muted);
+  font-size: 10px;
+}
+.cred-inputs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 6px;
+}
+.cred-inputs label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.cred-inputs input {
+  padding: 8px 10px;
+  font-size: 12px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: #fafaf7;
+}
+
+/* --- Document Review Modal / Drawer (Recruiter) --- */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 25, 20, 0.55);
+  backdrop-filter: blur(4px);
+  z-index: 1000;
+  display: flex;
+  justify-content: flex-end;
+  animation: fadeIn 0.2s ease;
+}
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+.review-drawer {
+  width: min(850px, 94vw);
+  height: 100vh;
+  background: #fff;
+  box-shadow: -10px 0 40px rgba(0, 0, 0, 0.15);
+  display: flex;
+  flex-direction: column;
+  animation: slideLeft 0.25s ease;
+  overflow: hidden;
+}
+@keyframes slideLeft { from { transform: translateX(100%); } to { transform: translateX(0); } }
+
+.drawer-header {
+  padding: 18px 24px;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #fbfbf8;
+}
+.drawer-header h3 {
+  font-family: 'Playfair Display', serif;
+  font-size: 20px;
+  margin: 0;
+}
+.drawer-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+.doc-viewer-container {
+  background: #242924;
+  border-radius: 8px;
+  overflow: hidden;
+  min-height: 400px;
+  display: flex;
+  flex-direction: column;
+}
+.doc-viewer-toolbar {
+  background: #171c18;
+  padding: 8px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: #ccd0c4;
+  font-size: 11px;
+}
+.doc-viewer-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.doc-viewer-controls button {
+  background: #2a332c;
+  color: #e5e8de;
+  border: 1px solid #3d4a3f;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.doc-viewer-controls button:hover {
+  background: #3c493f;
+}
+.doc-frame {
+  width: 100%;
+  height: 480px;
+  border: 0;
+  background: #fff;
+}
+.image-viewer {
+  width: 100%;
+  height: 480px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  padding: 20px;
+  background: #1e241f;
+}
+.image-viewer img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  transition: transform 0.2s ease;
+}
+
+/* --- AI Check Panel inside Drawer --- */
+.ai-check-panel {
+  background: #f9faf5;
+  border: 1px solid #dbe2cc;
+  border-radius: 8px;
+  padding: 18px 20px;
+}
+.ai-check-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+}
+.ai-check-head h4 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--forest);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.verdict-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 12px;
+  text-transform: capitalize;
+}
+.verdict-badge.likely_valid { background: #d7edd8; color: #1e6629; }
+.verdict-badge.needs_review { background: #fef0cd; color: #8a6100; }
+.verdict-badge.suspicious { background: #fadad7; color: #a32215; }
+
+.compare-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-top: 12px;
+  font-size: 12px;
+}
+.compare-box {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 12px;
+}
+.compare-box b {
+  display: block;
+  font-size: 10px;
+  color: var(--muted);
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+.findings-list {
+  margin: 12px 0 0;
+  padding-left: 20px;
+  font-size: 11px;
+  color: #4b5242;
+  line-height: 1.6;
+}
+.audit-trail {
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.audit-entry {
+  padding: 6px 0;
+  border-bottom: 1px dashed #eaece2;
+}
+
+/* --- Structured Skills to Grow Cards (Section 7) --- */
+.growth-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  margin-top: 14px;
+}
+.growth-card {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-left: 4px solid #89964c;
+  border-radius: 6px;
+  padding: 14px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.growth-card.high { border-left-color: #d9534f; }
+.growth-card.medium { border-left-color: #f0ad4e; }
+.growth-card.low { border-left-color: #5bc0de; }
+.growth-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.growth-skill {
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--ink);
+}
+.growth-priority {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: #f1f2eb;
+}
+.growth-priority.high { background: #fde8e8; color: #a43c30; }
+.growth-priority.medium { background: #fef3c7; color: #92400e; }
+.growth-priority.low { background: #e0f2fe; color: #0369a1; }
+.growth-text {
+  font-size: 12px;
+  line-height: 1.6;
+  color: #4f5347;
+  margin: 0;
+}
+.growth-action {
+  font-size: 11px;
+  color: #657432;
+  font-weight: 500;
+  margin-top: 4px;
+}
+
+/* --- Top Candidates AI Summary Card --- */
+.top-summary-card {
+  background: #f7f9f0;
+  border: 1px solid #d2ddbe;
+  border-radius: 8px;
+  padding: 18px 22px;
+  margin-bottom: 20px;
+}
+.top-summary-card h3 {
+  font-family: 'Playfair Display', serif;
+  font-size: 18px;
+  margin: 0 0 10px;
+  color: var(--forest);
+}
+.top-summary-card p {
+  font-size: 12px;
+  line-height: 1.8;
+  color: #404737;
+  white-space: pre-wrap;
+  margin: 0;
+}
+
+/* --- Filter Bar in Recruiter Desk --- */
+.recruiter-filters {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 16px 0;
+  padding: 10px 14px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.filter-tabs {
+  display: flex;
+  gap: 6px;
+}
+.filter-tabs button {
+  border: 0;
+  background: none;
+  font-size: 12px;
+  padding: 6px 12px;
+  border-radius: 4px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.filter-tabs button.active {
+  background: #f0f1e9;
+  color: var(--ink);
+  font-weight: 600;
+}
+.filter-controls {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.filter-controls input[type="number"] {
+  width: 60px;
+  padding: 4px 6px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+.filter-controls label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+/* --- AI Career Assistant Floating Widget --- */
+.assistant-toggle-btn {
+  position: fixed;
+  bottom: 28px;
+  right: 28px;
+  background: var(--forest);
+  color: #fff;
+  border: 0;
+  border-radius: 30px;
+  padding: 14px 22px;
+  font-size: 13px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 8px 25px rgba(25, 38, 28, 0.25);
+  cursor: pointer;
+  z-index: 900;
+  transition: transform 0.2s ease, background 0.2s ease;
+}
+.assistant-toggle-btn:hover {
+  transform: translateY(-2px);
+  background: #1b2820;
+}
+.assistant-toggle-btn span {
+  font-size: 16px;
+}
+
+.assistant-panel {
+  position: fixed;
+  bottom: 90px;
+  right: 28px;
+  width: min(440px, calc(100vw - 36px));
+  height: min(600px, calc(100vh - 120px));
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 16px 45px rgba(0, 0, 0, 0.16);
+  z-index: 950;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: popIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes popIn { from { transform: scale(0.92); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+.assistant-header {
+  background: var(--forest);
+  color: #fff;
+  padding: 14px 18px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.assistant-header b {
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.assistant-header button {
+  background: none;
+  border: 0;
+  color: #cdd4c8;
+  font-size: 18px;
+  cursor: pointer;
+}
+.assistant-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: #fbfbf8;
+}
+.assistant-msg {
+  max-width: 86%;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.assistant-msg.bot {
+  background: #fff;
+  border: 1px solid var(--line);
+  color: var(--ink);
+  align-self: flex-start;
+}
+.assistant-msg.user {
+  background: var(--forest);
+  color: #fff;
+  align-self: flex-end;
+}
+.assistant-quick-prompts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 14px;
+  background: #f5f6ee;
+  border-top: 1px solid var(--line);
+}
+.assistant-chip {
+  background: #fff;
+  border: 1px solid #dbe0ce;
+  border-radius: 14px;
+  padding: 4px 10px;
+  font-size: 10px;
+  color: #4b5242;
+  cursor: pointer;
+}
+.assistant-chip:hover {
+  background: #edf1df;
+  border-color: #89964c;
+}
+.assistant-input-box {
+  padding: 12px 14px;
+  background: #fff;
+  border-top: 1px solid var(--line);
+  display: flex;
+  gap: 8px;
+}
+.assistant-input-box input {
+  flex: 1;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 12px;
+  outline: none;
+}
+.assistant-input-box input:focus {
+  border-color: #89964c;
+}
+.assistant-input-box button {
+  background: var(--forest);
+  color: #fff;
+  border: 0;
+  border-radius: 6px;
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* Jobs recommended cards inside chat */
+.chat-jobs-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+.chat-job-card {
+  background: #f7f8f2;
+  border: 1px solid #dce2d0;
+  border-radius: 6px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.chat-job-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.chat-job-top b {
+  font-size: 12px;
+  color: var(--ink);
+}
+.chat-fit-pill {
+  font-size: 10px;
+  font-weight: 700;
+  background: #d6e87b;
+  color: #2b3917;
+  padding: 2px 6px;
+  border-radius: 10px;
+}
+.chat-job-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+.chat-job-actions button, .chat-job-actions a {
+  font-size: 10px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  text-decoration: none;
+}

@@ -1,124 +1,45 @@
-# Smart Resume Screener
+# Hirewise — Smart Resume Screener
 
-An automated resume evaluation pipeline that matches candidate profiles against specific job descriptions using Google Gemini LLM, Node.js, and React.
+A two-sided hiring platform built with Express, MongoDB, React, and Gemini. The original `Candidate` collection and `/api/process` + `/api/candidates` screening API remain available for existing records. The marketplace uses separate `User`, `Job`, and `Application` collections; no legacy records are deleted or migrated.
 
----
+## Run on Windows
 
-## Overview
+Prerequisites: Node.js 18+, MongoDB running locally or a MongoDB connection string, and a Gemini API key for resume extraction and job skill suggestions.
 
-The Smart Resume Screener streamlines recruitment by parsing PDF resumes, extracting key qualifications (skills, education, and professional experience), and scoring each candidate against a provided job description. Evaluation results are stored in MongoDB and rendered in an interactive dashboard for comparison.
+1. In PowerShell, from the project folder, copy `.env.example` to `.env` and set a private `JWT_SECRET`, `MONGO_URI`, and `LLM_API_KEY`.
+2. Install backend packages: `npm install`
+3. (Optional) Add demo recruiter, candidate, and two jobs: `npm run seed`. Both accounts use `DemoPass123!`.
+4. Start the API: `npm start` (binds to `0.0.0.0` at `PORT`, default 3000).
+5. In a second PowerShell window: `cd frontend; npm install; npm run dev -- --host 0.0.0.0`.
+6. For phone access, create `frontend/.env` with `VITE_API_URL=http://YOUR-PC-LAN-IP:3000` (no `/api` suffix), then restart Vite. Open the Vite network URL from the phone. The Vite page and API must be reachable through Windows Firewall on your private network.
 
----
-## Video Demo Link
+## Environment
 
-This is the link to my Smart Resume Screener. Hope this demonstration helps to convey my Idea !!!
+| Variable | Purpose | Default |
+|---|---|---|
+| `PORT` | API listening port | `3000` |
+| `MONGO_URI` | MongoDB connection | required |
+| `LLM_API_KEY` | Gemini API key | required for AI routes |
+| `GEMINI_MODEL` | Gemini model identifier | `gemini-3.8-flash` |
+| `JWT_SECRET` | Signs seven-day auth tokens | required; set a long random value |
+| `DUPLICATE_THRESHOLD` | Near duplicate Jaccard threshold from 0 to 1 | `0.85` |
+| `VITE_API_URL` | Frontend API origin, set in `frontend/.env` | `http://localhost:3000` |
 
-https://drive.google.com/file/d/1aHgfRKZMCnGnJlrzsOYYzqBklKxY9zwI/view?usp=sharing
+## Test checklist
 
+1. **Auth and roles:** Register a candidate and recruiter; verify duplicate email and invalid inputs fail; login, refresh, logout; candidate-only and recruiter-only views/API calls reject the other role. Check `/api/auth/me` with `Authorization: Bearer <token>`.
+2. **Jobs:** Create, edit with `PUT /api/jobs/:id`, and close a recruiter job; search `/api/jobs?search=...` as a candidate; confirm closed jobs disappear. Required weights must sum to 100. `POST /api/recruiter/extract-skills` optionally extracts skill lists.
+3. **Applications and fit:** Apply to an open role with one PDF (`resume` multipart field, maximum 8 MB), check matched/missing skills, then attempt a second application and confirm HTTP 409. View My Applications and a fit report.
+4. **Ranking:** Apply with multiple candidate accounts; use `GET /api/recruiter/jobs/:id/applicants?status=applied&minScore=40`; confirm scores sort descending and explain component/reason fields.
+5. **Proof:** Upload a PDF/image or HTTPS credential link to `/api/jobs/applications/:applicationId/certifications/:certificationId/proof`; verify/reject as the owning recruiter and confirm the updated score. Proof access is checked against the candidate/recruiter owner.
+6. **Duplicates:** Apply with an identical PDF, matching contact data, and similar text; call `POST /api/recruiter/jobs/:id/duplicates`; confirm only flagged groups are returned and no application is automatically rejected.
+7. **Responsive UI and LAN:** Check job browse/apply, status tracking, recruiter applicant review, loading/empty/error states, and narrow mobile layout. Use `VITE_API_URL` set to the PC LAN address and confirm requests from a phone reach the API.
 
----
+## API overview
 
-## Key Features
+- Auth: `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me`
+- Jobs: `GET /api/jobs`, `GET /api/jobs/:id`, recruiter `POST/PUT /api/jobs`, `POST /api/jobs/:id/close`, candidate `POST /api/jobs/:id/apply`, `GET /api/jobs/my/applications`
+- Recruiter: `GET /api/recruiter/jobs/:id/applicants`, `PATCH /api/recruiter/applications/:id/status`, proof verification/access, `POST /api/recruiter/jobs/:id/duplicates`
+- Legacy screening: `POST /api/process`, `GET /api/candidates`
 
-* **Multi-PDF Parsing:** Extracts raw text directly from in-memory PDF uploads.
-* **Structured AI Evaluation:** Uses Google Gemini (gemini-3.5-flash) with schema enforcement to output strict JSON evaluations.
-* **Candidate Fit Scoring:** Generates a 1-100 compatibility score alongside matching and missing skill breakdowns.
-* **Persistent Record Keeping:** Saves evaluations directly to MongoDB for historical tracking and sorting.
-* **Clean User Interface:** Simple React dashboard for submitting job descriptions and reviewing ranked candidates.
-
----
-
-## Architecture & Data Flow
-
-    [React Client] 
-          │ (Multipart Form Data)
-          ▼
-    [Express Server / Multer Memory Storage]
-          │
-          ├─► [pdf-parse] ──► Extracted Resume Text
-          │
-          ├─► [Gemini API] ──► Evaluates Text against Job Description
-          │                         │
-          │                         ▼
-          │                   Structured JSON
-          │                         │
-          └─► [MongoDB] ◄───────────┘
-
-1. **Client Submission:** The frontend sends the job description text and PDF files via a multipart/form-data request.
-2. **Buffer Ingestion:** Multer stores file buffers temporarily in memory to avoid disk I/O overhead.
-3. **Text Extraction:** pdf-parse reads the buffer content and outputs unstructured text strings.
-4. **LLM Inference:** The backend constructs an evaluation prompt and calls the Gemini API to analyze the resume against the role requirements.
-5. **Database Persistence:** Candidate records (scores, skills, experience summary) are validated against the Mongoose schema and saved.
-6. **Client Synchronization:** The frontend refetches the updated candidate collection and displays cards sorted by submission date.
-
----
-
-## Prompt Engineering
-
-To prevent hallucinated formats and guarantee valid database inserts, the model is prompted with explicit JSON schema constraints:
-
-    Compare the following resume with this job description and rate fit on 1-100 with justification.
-    Extract the candidate's skills, experience, and education.
-    Respond strictly in JSON format with exactly these keys: "score" (number), "matchingSkills" (array of strings), "missingSkills" (array of strings), "education" (string), "experience" (string), and "summary" (string).
-
-    Resume: ${resumeText}
-    Job Description: ${jobDescription}
-
----
-
-## Tech Stack
-
-* **Frontend:** React, Vite, Axios
-* **Backend:** Node.js, Express.js
-* **Database:** MongoDB, Mongoose ODM
-* **File Handling:** Multer, pdf-parse
-* **AI Model:** Google Generative AI SDK (gemini-3.5-flash)
-
----
-
-## Getting Started
-
-### Prerequisites
-
-* Node.js (v18 or higher)
-* MongoDB (local instance or MongoDB Atlas connection string)
-* Google Gemini API Key
-
----
-
-### Installation & Setup
-
-#### 1. Clone the repository
-    git clone [https://github.com/your-username/smart-resume-screener.git](https://github.com/your-username/smart-resume-screener.git)
-    cd smart-resume-screener
-
-#### 2. Backend Configuration
-Create a .env file in the root project directory:
-
-    PORT=3000
-    MONGO_URI=mongodb://127.0.0.1:27017/resume-screener
-    LLM_API_KEY=your_google_gemini_api_key
-
-Install backend dependencies and start the server:
-
-    npm install
-    node index.js
-
-#### 3. Frontend Configuration
-Navigate to the frontend folder, install client dependencies, and start the development server:
-
-    cd frontend
-    npm install
-    npm run dev
-
----
-
-## API Endpoints
-
-| Method | Endpoint | Description |
-| :--- | :--- | :--- |
-| `POST` | `/api/process` | Accepts `jobDescription` (text) and `resumes` (PDF files) for parsing and evaluation |
-| `GET` | `/api/candidates` | Retrieves all evaluated candidates from MongoDB |
-
----
-**Author:** Soumyadeep Saha
+Uploaded resumes are currently retained as extracted text and original filename, not persisted as downloadable resume files. Certification proof bytes are stored with the application for authenticated serving. Keep `.env` private.

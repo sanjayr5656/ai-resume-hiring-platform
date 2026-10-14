@@ -1,14 +1,28 @@
 # Node dependencies
 node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
-# Sensitive Environment Variables
+# Sensitive Environment Variables & Secrets
 .env
+.env.*
+!.env.example
+*.env
+
+# Uploaded candidate files and documents
+uploads/resumes/*
+!uploads/resumes/.gitkeep
+uploads/proofs/*
+!uploads/proofs/.gitkeep
 
 # Frontend Build artifacts
 dist/
 build/
 
-# Temporary/Editor files
+# Temporary / Editor files / OS files
 .vscode/
 .idea/
 .DS_Store
+Thumbs.db
+*.log
