@@ -177,12 +177,113 @@ router.get('/my/applications/:applicationId/resume', requireAuth, requireRole('c
   });
 }));
 
-// 9. Upload Multiple Proof Documents for a Certification (Section 2)
+// 9. Add a Certification / Document to Application (Section 2)
+router.post('/applications/:applicationId/certifications', requireAuth, requireRole('candidate'), proofUpload.array('proofs', 10), asyncRoute(async (req, res) => {
+  const a = await Application.findOne({ _id: req.params.applicationId, candidateId: req.user._id });
+  if (!a) return res.status(404).json({ error: 'Application not found' });
+
+  const name = String(req.body.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'Certification or document name is required' });
+
+  const issuer = String(req.body.issuer || '').trim();
+  const credentialId = String(req.body.credentialId || '').trim();
+  const credentialUrl = String(req.body.credentialUrl || '').trim();
+  if (credentialUrl && !/^https?:\/\//i.test(credentialUrl)) {
+    return res.status(400).json({ error: 'Credential URL must be a valid http/https link' });
+  }
+
+  const proofsDir = path.join(__dirname, '..', 'uploads', 'proofs');
+  fs.mkdirSync(proofsDir, { recursive: true });
+
+  const proofFiles = [];
+  if (req.files && req.files.length > 0) {
+    for (const f of req.files) {
+      const fileId = crypto.randomUUID();
+      const sanitizedName = (f.originalname || 'document').replace(/[^a-zA-Z0-9._-]/g, '_');
+      const diskFilename = `${fileId}_${sanitizedName}`;
+      const diskPath = path.join(proofsDir, diskFilename);
+      fs.writeFileSync(diskPath, f.buffer);
+
+      const sha256 = crypto.createHash('sha256').update(f.buffer).digest('hex');
+      proofFiles.push({
+        fileId,
+        originalName: sanitizedName,
+        mimeType: f.mimetype,
+        size: f.size,
+        path: diskPath,
+        sha256,
+        uploadedAt: new Date()
+      });
+    }
+  }
+
+  const hasProof = proofFiles.length > 0 || !!credentialUrl;
+  const newCert = {
+    name,
+    issuer,
+    credentialId,
+    credentialUrl,
+    proofFiles,
+    verificationStatus: hasProof ? 'proof_provided' : 'claimed',
+    auditTrail: [],
+    relevance: 5
+  };
+
+  if (!a.parsed) a.parsed = {};
+  if (!Array.isArray(a.parsed.certifications)) a.parsed.certifications = [];
+  a.parsed.certifications.push(newCert);
+
+  const job = await Job.findById(a.jobId);
+  a.scores = rank(a.parsed, job);
+  a.markModified('parsed');
+  await a.save();
+
+  enqueueRerank(job._id);
+  await a.populate('jobId', 'title company status requiredSkills niceToHaveSkills');
+  res.status(201).json(a);
+}));
+
+// 10. Delete a Certification from Application
+router.delete('/applications/:applicationId/certifications/:certificationId', requireAuth, requireRole('candidate'), asyncRoute(async (req, res) => {
+  const a = await Application.findOne({ _id: req.params.applicationId, candidateId: req.user._id });
+  if (!a) return res.status(404).json({ error: 'Application not found' });
+
+  const certs = a.parsed?.certifications || [];
+  const certIdx = certs.findIndex(c => String(c._id) === String(req.params.certificationId));
+  if (certIdx === -1) return res.status(404).json({ error: 'Certification not found' });
+
+  const c = certs[certIdx];
+  if (c.verificationStatus === 'verified') {
+    return res.status(400).json({ error: 'Cannot delete a verified certification.' });
+  }
+
+  // Remove disk proof files
+  if (Array.isArray(c.proofFiles)) {
+    for (const f of c.proofFiles) {
+      if (f.path && fs.existsSync(f.path)) {
+        try { fs.unlinkSync(f.path); } catch {}
+      }
+    }
+  }
+
+  certs.splice(certIdx, 1);
+  const job = await Job.findById(a.jobId);
+  a.scores = rank(a.parsed, job);
+  a.markModified('parsed');
+  await a.save();
+
+  enqueueRerank(job._id);
+  await a.populate('jobId', 'title company status requiredSkills niceToHaveSkills');
+  res.json(a);
+}));
+
+// 11. Upload Multiple Proof Documents for a Certification (Section 2)
 router.post('/applications/:applicationId/certifications/:certificationId/proof', requireAuth, requireRole('candidate'), proofUpload.array('proofs', 10), asyncRoute(async (req, res) => {
   const a = await Application.findOne({ _id: req.params.applicationId, candidateId: req.user._id });
   if (!a) return res.status(404).json({ error: 'Application not found' });
 
-  const c = a.parsed.certifications.id(req.params.certificationId);
+  const certs = a.parsed?.certifications || [];
+  const c = typeof certs.id === 'function' ? certs.id(req.params.certificationId) : certs.find(item => String(item._id) === String(req.params.certificationId));
   if (!c) return res.status(404).json({ error: 'Certification not found' });
 
   if (c.verificationStatus === 'verified') {
@@ -232,20 +333,23 @@ router.post('/applications/:applicationId/certifications/:certificationId/proof'
 
   const job = await Job.findById(a.jobId);
   a.scores = rank(a.parsed, job);
+  a.markModified('parsed');
   await a.save();
 
   // Enqueue reranking
   enqueueRerank(job._id);
 
+  await a.populate('jobId', 'title company status requiredSkills niceToHaveSkills');
   res.json(a);
 }));
 
-// 10. Delete a proof file from a certification (Section 2)
+// 12. Delete a proof file from a certification (Section 2)
 router.delete('/applications/:applicationId/certifications/:certificationId/proofs/:fileId', requireAuth, requireRole('candidate'), asyncRoute(async (req, res) => {
   const a = await Application.findOne({ _id: req.params.applicationId, candidateId: req.user._id });
   if (!a) return res.status(404).json({ error: 'Application not found' });
 
-  const c = a.parsed.certifications.id(req.params.certificationId);
+  const certs = a.parsed?.certifications || [];
+  const c = typeof certs.id === 'function' ? certs.id(req.params.certificationId) : certs.find(item => String(item._id) === String(req.params.certificationId));
   if (!c) return res.status(404).json({ error: 'Certification not found' });
 
   if (c.verificationStatus === 'verified') {
@@ -268,9 +372,11 @@ router.delete('/applications/:applicationId/certifications/:certificationId/proo
 
   const job = await Job.findById(a.jobId);
   a.scores = rank(a.parsed, job);
+  a.markModified('parsed');
   await a.save();
 
   enqueueRerank(job._id);
+  await a.populate('jobId', 'title company status requiredSkills niceToHaveSkills');
   res.json(a);
 }));
 
@@ -287,7 +393,8 @@ router.get('/applications/:applicationId/certifications/:certificationId/proofs/
     return res.status(403).json({ error: 'Forbidden: You do not have permission to view this proof document.' });
   }
 
-  const c = a.parsed.certifications.id(req.params.certificationId);
+  const certs = a.parsed?.certifications || [];
+  const c = typeof certs.id === 'function' ? certs.id(req.params.certificationId) : certs.find(item => String(item._id) === String(req.params.certificationId));
   if (!c) return res.status(404).json({ error: 'Certification not found' });
 
   const fileRecord = (c.proofFiles || []).find(f => f.fileId === req.params.fileId);

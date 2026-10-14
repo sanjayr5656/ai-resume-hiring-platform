@@ -91,7 +91,8 @@ router.post('/applications/:id/certifications/:certId/ai-check', asyncRoute(asyn
   if (!a || a.jobId.recruiterId.toString() !== req.user._id.toString()) {
     return res.status(404).json({ error: 'Application not found' });
   }
-  const c = a.parsed.certifications.id(req.params.certId);
+  const certs = a.parsed?.certifications || [];
+  const c = typeof certs.id === 'function' ? certs.id(req.params.certId) : certs.find(item => String(item._id) === String(req.params.certId));
   if (!c) return res.status(404).json({ error: 'Certification not found' });
 
   const applicantInfo = {
@@ -113,6 +114,7 @@ router.post('/applications/:id/certifications/:certId/ai-check', asyncRoute(asyn
 
   const job = a.jobId;
   a.scores = rank(a.parsed, job);
+  a.markModified('parsed');
   await a.save();
 
   enqueueRerank(job._id);
@@ -133,7 +135,8 @@ router.patch('/applications/:id/certifications/:certId/verify', asyncRoute(async
   if (!a || a.jobId.recruiterId.toString() !== req.user._id.toString()) {
     return res.status(404).json({ error: 'Application not found' });
   }
-  const c = a.parsed.certifications.id(req.params.certId);
+  const certs = a.parsed?.certifications || [];
+  const c = typeof certs.id === 'function' ? certs.id(req.params.certId) : certs.find(item => String(item._id) === String(req.params.certId));
   if (!c) return res.status(404).json({ error: 'Certification not found' });
 
   c.verificationStatus = status;
@@ -148,6 +151,7 @@ router.patch('/applications/:id/certifications/:certId/verify', asyncRoute(async
 
   const job = a.jobId;
   a.scores = rank(a.parsed, job);
+  a.markModified('parsed');
   await a.save();
 
   // Immediately update ranking

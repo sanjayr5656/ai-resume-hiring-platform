@@ -418,7 +418,9 @@ function MultiFileProofUploader({ app, cert, onUpdate }) {
     if (credUrl) formData.append('credentialUrl', credUrl);
 
     try {
-      const res = await api.post(`/api/jobs/applications/${app._id}/certifications/${cert._id}/proof`, formData);
+      const res = await api.post(`/api/jobs/applications/${app._id}/certifications/${cert._id}/proof`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
       onUpdate(res.data);
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to upload proof files.');
@@ -454,6 +456,16 @@ function MultiFileProofUploader({ app, cert, onUpdate }) {
     }
   }
 
+  async function handleDeleteCert() {
+    if (!confirm(`Delete certification "${cert.name}" and all attached proofs?`)) return;
+    try {
+      const res = await api.delete(`/api/jobs/applications/${app._id}/certifications/${cert._id}`);
+      onUpdate(res.data);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to delete certification.');
+    }
+  }
+
   const isVerified = cert.verificationStatus === 'verified';
 
   return (
@@ -463,21 +475,34 @@ function MultiFileProofUploader({ app, cert, onUpdate }) {
           <div className="cert-card-title">{cert.name}</div>
           <div className="cert-meta">{cert.issuer ? `Issuer: ${cert.issuer} · ` : ''}Relevance: {cert.relevance || 5}/10</div>
         </div>
-        <span className={`status ${cert.verificationStatus}`}>{cert.verificationStatus?.replace('_', ' ')}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span className={`status ${cert.verificationStatus}`}>{cert.verificationStatus?.replace('_', ' ')}</span>
+          {!isVerified && (
+            <button
+              type="button"
+              className="quiet danger"
+              style={{ padding: '3px 8px', fontSize: '11px' }}
+              title="Delete this certification"
+              onClick={handleDeleteCert}
+            >
+              ✕ Delete
+            </button>
+          )}
+        </div>
       </div>
 
       {!isVerified && (
         <>
           <div
-            className={`cert-dropzone ${dragOver ? 'dragover' : ''}`}
-            onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+            className={`cert-dropzone ${dragOver ? 'dragover' : ''} ${uploading ? 'disabled' : ''}`}
+            onDragOver={e => { e.preventDefault(); if (!uploading) setDragOver(true); }}
             onDragLeave={() => setDragOver(false)}
             onDrop={e => {
               e.preventDefault();
               setDragOver(false);
-              handleFiles(e.dataTransfer.files);
+              if (!uploading) handleFiles(e.dataTransfer.files);
             }}
-            onClick={() => fileInputRef.current?.click()}
+            onClick={() => { if (!uploading) fileInputRef.current?.click(); }}
           >
             <input
               type="file"
@@ -485,9 +510,13 @@ function MultiFileProofUploader({ app, cert, onUpdate }) {
               multiple
               accept="application/pdf,image/png,image/jpeg,image/webp"
               style={{ display: 'none' }}
-              onChange={e => handleFiles(e.target.files)}
+              onClick={e => e.stopPropagation()}
+              onChange={e => {
+                handleFiles(e.target.files);
+                e.target.value = '';
+              }}
             />
-            <p>📁 Drag & drop multiple proof files here, or click to browse</p>
+            <p>{uploading ? '⏳ Uploading files, please wait…' : '📁 Drag & drop multiple proof files here, or click to browse'}</p>
             <small>Supports PDF, PNG, JPG, WEBP (Up to 10 MB each)</small>
           </div>
 
@@ -562,6 +591,196 @@ function MultiFileProofUploader({ app, cert, onUpdate }) {
       )}
 
       {error && <div className="error" style={{ fontSize: '11px' }}>{error}</div>}
+    </div>
+  );
+}
+
+// -------------------------------------------------------------
+// Add Certification & Document Proof Form Component (Section 2)
+// -------------------------------------------------------------
+function AddCertificationForm({ app, onAdded }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState('');
+  const [issuer, setIssuer] = useState('');
+  const [credId, setCredId] = useState('');
+  const [credUrl, setCredUrl] = useState('');
+  const [selectedFiles, setSelectedFiles] = useState([]);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState('');
+  const fileInputRef = useRef(null);
+
+  function handleFileSelect(e) {
+    if (e.target.files) {
+      setSelectedFiles(Array.from(e.target.files));
+    }
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (!name.trim()) {
+      setError('Certification or document title is required.');
+      return;
+    }
+    setError('');
+    setUploading(true);
+
+    const formData = new FormData();
+    formData.append('name', name.trim());
+    if (issuer.trim()) formData.append('issuer', issuer.trim());
+    if (credId.trim()) formData.append('credentialId', credId.trim());
+    if (credUrl.trim()) formData.append('credentialUrl', credUrl.trim());
+    for (const f of selectedFiles) {
+      formData.append('proofs', f);
+    }
+
+    try {
+      const res = await api.post(`/api/jobs/applications/${app._id}/certifications`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      onAdded(res.data);
+      setName('');
+      setIssuer('');
+      setCredId('');
+      setCredUrl('');
+      setSelectedFiles([]);
+      setOpen(false);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to add certification.');
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  if (!open) {
+    return (
+      <div style={{ marginTop: '16px', marginBottom: '20px' }}>
+        <button
+          type="button"
+          className="brand"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '8px',
+            padding: '10px 18px',
+            fontSize: '13px',
+            fontWeight: 600,
+            borderRadius: '6px',
+            cursor: 'pointer'
+          }}
+          onClick={() => setOpen(true)}
+        >
+          ➕ Add Certification / Proof Document
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="cert-card" style={{ marginTop: '16px', marginBottom: '24px', border: '2px solid #89964c', background: '#fdfdfb' }}>
+      <div className="cert-card-header">
+        <div>
+          <div className="cert-card-title">Add New Certification & Proof Documents</div>
+          <div className="cert-meta">Attach official certificates, diplomas, degrees, or transcripts to boost your verified score.</div>
+        </div>
+        <button type="button" className="quiet" onClick={() => { setOpen(false); setError(''); }}>✕ Cancel</button>
+      </div>
+
+      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginTop: '14px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '12px' }}>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', fontWeight: 600 }}>
+            <span>Certification / Document Title <span style={{ color: '#d9534f' }}>*</span></span>
+            <input
+              type="text"
+              required
+              placeholder="e.g. AWS Solutions Architect, Degree Certificate, Full Stack Bootcamp"
+              value={name}
+              onChange={e => setName(e.target.value)}
+              style={{ padding: '8px 10px', borderRadius: '4px', border: '1px solid var(--line)' }}
+            />
+          </label>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', fontWeight: 600 }}>
+            <span>Issuing Organization</span>
+            <input
+              type="text"
+              placeholder="e.g. Amazon Web Services, University, Coursera, Meta"
+              value={issuer}
+              onChange={e => setIssuer(e.target.value)}
+              style={{ padding: '8px 10px', borderRadius: '4px', border: '1px solid var(--line)' }}
+            />
+          </label>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '12px' }}>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', fontWeight: 600 }}>
+            <span>Credential ID / Roll Number (Optional)</span>
+            <input
+              type="text"
+              placeholder="e.g. AWS-DEV-98432 or ROLL-2024-001"
+              value={credId}
+              onChange={e => setCredId(e.target.value)}
+              style={{ padding: '8px 10px', borderRadius: '4px', border: '1px solid var(--line)' }}
+            />
+          </label>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', fontWeight: 600 }}>
+            <span>Verification URL (Optional HTTPS Link)</span>
+            <input
+              type="url"
+              placeholder="https://..."
+              value={credUrl}
+              onChange={e => setCredUrl(e.target.value)}
+              style={{ padding: '8px 10px', borderRadius: '4px', border: '1px solid var(--line)' }}
+            />
+          </label>
+        </div>
+
+        <div>
+          <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '6px' }}>
+            Attach Proof Files (Optional)
+          </label>
+          <div
+            className="cert-dropzone"
+            onClick={() => fileInputRef.current?.click()}
+            style={{ padding: '16px' }}
+          >
+            <input
+              type="file"
+              ref={fileInputRef}
+              multiple
+              accept="application/pdf,image/png,image/jpeg,image/webp"
+              style={{ display: 'none' }}
+              onClick={e => e.stopPropagation()}
+              onChange={handleFileSelect}
+            />
+            <p>📁 Click here or drag files to attach proof documents</p>
+            <small>Supports PDF, PNG, JPG, WEBP (Up to 10 MB each)</small>
+          </div>
+          {selectedFiles.length > 0 && (
+            <div style={{ marginTop: '8px', display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+              {selectedFiles.map((f, i) => (
+                <span key={i} style={{ background: '#eef2e0', padding: '4px 10px', borderRadius: '14px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                  📄 {f.name} ({Math.round(f.size / 1024)} KB)
+                  <button
+                    type="button"
+                    style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#888', padding: 0 }}
+                    onClick={() => setSelectedFiles(selectedFiles.filter((_, idx) => idx !== i))}
+                  >✕</button>
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {error && <div className="error" style={{ fontSize: '12px' }}>{error}</div>}
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '6px' }}>
+          <button type="button" className="quiet" onClick={() => setOpen(false)} disabled={uploading}>
+            Cancel
+          </button>
+          <button type="submit" className="brand" disabled={uploading}>
+            {uploading ? 'Uploading & Saving…' : 'Save & Upload Proof'}
+          </button>
+        </div>
+      </form>
     </div>
   );
 }
@@ -709,12 +928,24 @@ function FitReport() {
         )}
 
         {/* Multi-Document Proof Upload Section (Section 2) */}
-        <h3 style={{ fontSize: '17px', marginTop: '30px' }}>Certification Proofs & Document Uploads</h3>
-        <p className="muted" style={{ fontSize: '12px' }}>
-          Provide verifiable evidence (certificates, transcripts, credentials) to elevate your proof score from claimed (0.3x) to verified (1.0x).
-        </p>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '30px', flexWrap: 'wrap', gap: '12px' }}>
+          <div>
+            <h3 style={{ fontSize: '17px', margin: 0 }}>Certification Proofs & Document Uploads</h3>
+            <p className="muted" style={{ fontSize: '12px', margin: '4px 0 0' }}>
+              Provide verifiable evidence (certificates, transcripts, credentials) to elevate your proof score from claimed (0.3x) to verified (1.0x).
+            </p>
+          </div>
+        </div>
+
+        <AddCertificationForm app={app} onAdded={setApp} />
+
         {(app.parsed?.certifications || []).length === 0 ? (
-          <div className="empty" style={{ padding: '20px' }}>No certifications listed on this profile.</div>
+          <div className="empty" style={{ padding: '30px', background: '#fbfbf8', border: '1px dashed #d5d8cb', borderRadius: '8px', textAlign: 'center' }}>
+            <p style={{ margin: 0, fontWeight: 500, color: 'var(--ink)' }}>No certifications or documents listed on this profile yet.</p>
+            <p style={{ margin: '6px 0 0', fontSize: '12px', color: 'var(--muted)' }}>
+              Use the <b>"+ Add Certification / Proof Document"</b> button above to attach your certificates, diplomas, or degrees and boost your hiring ranking!
+            </p>
+          </div>
         ) : (
           app.parsed.certifications.map(c => (
             <MultiFileProofUploader key={c._id} app={app} cert={c} onUpdate={setApp} />
