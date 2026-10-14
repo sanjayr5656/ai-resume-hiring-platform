@@ -11,6 +11,7 @@ const { extractResume } = require('../controllers/ai');
 const { skillGap } = require('../utils/skills');
 const { rank } = require('../utils/ranking');
 const { enqueueRerank, rerankJob } = require('../services/queue');
+const { resolveProofFilePath } = require('../utils/proofs');
 
 const maxUploadMb = Number(process.env.MAX_UPLOAD_MB || 10);
 const maxFileSizeBytes = maxUploadMb * 1024 * 1024;
@@ -398,10 +399,13 @@ router.get('/applications/:applicationId/certifications/:certificationId/proofs/
   if (!c) return res.status(404).json({ error: 'Certification not found' });
 
   const fileRecord = (c.proofFiles || []).find(f => f.fileId === req.params.fileId);
-  if (fileRecord && fileRecord.path && fs.existsSync(fileRecord.path)) {
-    res.setHeader('Content-Type', fileRecord.mimeType || 'application/octet-stream');
+  if (!fileRecord) return res.status(404).json({ error: 'Proof file record not found' });
+
+  const diskPath = resolveProofFilePath(fileRecord);
+  if (diskPath && fs.existsSync(diskPath)) {
+    res.setHeader('Content-Type', fileRecord.mimeType || 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${fileRecord.originalName}"`);
-    return fs.createReadStream(fileRecord.path).pipe(res);
+    return fs.createReadStream(diskPath).pipe(res);
   }
 
   // Backward compatibility with legacy base64 proofFile

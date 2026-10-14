@@ -234,6 +234,7 @@ const issuerDomainMap = {
  * Automated Certificate AI Verification Check (Section 3)
  */
 exports.aiCheckCertificate = async (cert, applicantInfo = {}) => {
+  const { extractProofText, heuristicInspectCertificate } = require('../utils/proofs');
   const findings = [];
   let verdict = 'likely_valid';
   let confidence = 85;
@@ -243,7 +244,20 @@ exports.aiCheckCertificate = async (cert, applicantInfo = {}) => {
   const claimedId = cert.credentialId || '';
   const claimedUrl = cert.credentialUrl || '';
 
-  // 1. Domain verification check
+  // 1. Extract actual text from all uploaded proof files (PDFs / documents)
+  let proofDocText = '';
+  if (Array.isArray(cert.proofFiles)) {
+    for (const f of cert.proofFiles) {
+      try {
+        const txt = await extractProofText(f);
+        if (txt) proofDocText += `\n[Document: ${f.originalName}]\n${txt}\n`;
+      } catch (err) {
+        console.warn('Error reading proof text:', err.message);
+      }
+    }
+  }
+
+  // 2. Domain verification check
   if (claimedUrl) {
     try {
       const parsedUrl = new URL(claimedUrl);
@@ -272,22 +286,30 @@ exports.aiCheckCertificate = async (cert, applicantInfo = {}) => {
     }
   }
 
-  // 2. Automated AI inspection of certificate data
-  const prompt = `You are a forensic credential verification assistant inspecting a certificate claim.
-Applicant name: ${applicantInfo.applicantName || 'Unknown'}
-Resume contact name: ${applicantInfo.resumeName || 'Unknown'}
-Claimed certification title: ${claimedName}
-Claimed issuer: ${claimedIssuer}
-Claimed credential ID: ${claimedId}
-Claimed verification URL: ${claimedUrl}
+  // 3. Automated AI inspection of certificate data using real document text
+  const prompt = `You are a forensic credential verification assistant inspecting a certificate claim and uploaded document.
+Applicant Profile Name: ${applicantInfo.applicantName || 'Unknown'}
+Resume Name: ${applicantInfo.resumeName || 'Unknown'}
+Claimed Title: ${claimedName}
+Claimed Issuer: ${claimedIssuer}
+Claimed Credential ID: ${claimedId}
+Claimed Verification URL: ${claimedUrl}
 Number of uploaded proof documents: ${(cert.proofFiles || []).length}
 Uploaded document filenames: ${(cert.proofFiles || []).map(f => f.originalName).join(', ') || 'None'}
 
+ACTUAL TEXT EXTRACTED FROM UPLOADED PROOF DOCUMENT:
+"""
+${proofDocText ? proofDocText.slice(0, 15000) : 'No direct text extracted from document (may be a scanned image or empty).'}
+"""
+
 Evaluate this certification for:
-1. Plausibility of title and issuing organization.
-2. Consistency of credential ID and formatting.
-3. Name match alignment between applicant and certificate.
-4. Any suspicious anomalies (e.g., generic filenames, mismatched issuer, impossible credentials).
+1. Extract the actual recipient/student name printed on the document.
+2. Extract the actual course/certificate title printed on the document.
+3. Extract the issuing organization, issue date, and credential/serial ID printed on the document.
+4. Compare recipient name on the document with the applicant profile name:
+   - If names match or are minor variations, verdict is "likely_valid" (confidence 85-95%).
+   - If recipient name clearly mismatches applicant profile name, verdict is "needs_review" or "suspicious" with finding: "Name Mismatch: Certificate issued to [extracted name], but applicant is [applicant name]".
+   - If claimed title differs significantly from the document, record this anomaly.
 
 Return ONLY strict JSON with this exact schema:
 {
@@ -295,11 +317,11 @@ Return ONLY strict JSON with this exact schema:
   "confidence": 85,
   "findings": ["Finding 1", "Finding 2"],
   "extracted": {
-    "candidateName": "Extracted name or applicant name",
-    "courseTitle": "Course title",
-    "issuer": "Issuer",
-    "dateOrDuration": "Estimated or extracted date",
-    "credentialId": "Credential ID if plausible",
+    "candidateName": "Recipient name printed on certificate",
+    "courseTitle": "Course title printed on certificate",
+    "issuer": "Issuing organization printed on certificate",
+    "dateOrDuration": "Issue date printed on certificate",
+    "credentialId": "Credential ID or serial number",
     "scoreOrGrade": "Grade if mentioned",
     "verificationUrl": "URL if present"
   }
@@ -323,18 +345,14 @@ Return ONLY strict JSON with this exact schema:
       checkedAt: new Date()
     };
   } catch (err) {
-    findings.push(`AI automated check ran with heuristic analyzer: ${err.message}`);
+    // If Gemini API experiences high demand (503) or timeout, execute forensic heuristic inspection
+    const heuristicResult = heuristicInspectCertificate(proofDocText, cert, applicantInfo);
+    const combinedFindings = [...new Set([...findings, ...(heuristicResult.findings || [])])];
     return {
-      verdict,
-      confidence,
-      findings,
-      extracted: {
-        candidateName: applicantInfo.applicantName || 'Applicant',
-        courseTitle: claimedName,
-        issuer: claimedIssuer,
-        credentialId: claimedId,
-        verificationUrl: claimedUrl
-      },
+      verdict: heuristicResult.verdict || verdict,
+      confidence: heuristicResult.confidence || confidence,
+      findings: combinedFindings,
+      extracted: heuristicResult.extracted,
       checkedAt: new Date()
     };
   }

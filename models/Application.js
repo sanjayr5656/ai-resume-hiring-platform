@@ -5,7 +5,7 @@ const proofFileSchema = new mongoose.Schema({
   originalName: { type: String, required: true },
   mimeType: { type: String, required: true },
   size: { type: Number, required: true },
-  path: { type: String, required: true, select: false },
+  path: { type: String, default: '' },
   sha256: { type: String, required: true },
   uploadedAt: { type: Date, default: Date.now }
 }, { _id: false });
