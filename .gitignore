@@ -15,6 +15,15 @@ uploads/resumes/*
 !uploads/resumes/.gitkeep
 uploads/proofs/*
 !uploads/proofs/.gitkeep
+uploads/profiles/*
+!uploads/profiles/.gitkeep
+
+# Data reset backups (created by npm run reset:data)
+backups/
+
+# Debug / scratch dumps
+scripts/*.html
+
 
 # Frontend Build artifacts
 dist/
@@ -25,4 +34,4 @@ build/
 .idea/
 .DS_Store
 Thumbs.db
-*.log
+*.log

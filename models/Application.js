@@ -97,7 +97,15 @@ const applicationSchema = new mongoose.Schema({
   status: { type: String, enum: ['applied', 'shortlisted', 'rejected'], default: 'applied', index: true },
   rank: { type: Number, default: null },
   rankUpdatedAt: { type: Date, default: null },
-  duplicateFlags: [mongoose.Schema.Types.Mixed]
+  duplicateFlags: [mongoose.Schema.Types.Mixed],
+  // Immutable snapshot of candidate's profile at time of application
+  profileSnapshot: {
+    links: { type: mongoose.Schema.Types.Mixed, default: {} },
+    codingStats: [mongoose.Schema.Types.Mixed],
+    certificates: [mongoose.Schema.Types.Mixed],
+    snapshotAt: { type: Date, default: null },
+  },
+
 }, { timestamps: { createdAt: 'createdAt', updatedAt: true } });
 
 applicationSchema.index({ jobId: 1, candidateId: 1 }, { unique: true });

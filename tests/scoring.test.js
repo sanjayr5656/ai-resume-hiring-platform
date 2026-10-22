@@ -139,4 +139,35 @@ const baseJob = {
   console.log('✓ Test 6 passed: Real candidate scores sensibly (> 70/100) instead of buggy 9/100.');
 }
 
+// 7. Profile Snapshot Supporting Evidence Test
+{
+  const candidate = {
+    skills: ['Node.js', 'React'],
+    projects: [{ name: 'Task Manager', technologies: ['Node.js'], relevance: 6 }],
+    certifications: [],
+    experience: [{ years: 2 }]
+  };
+
+  const snapshotWithCoding = {
+    codingStats: [
+      { platform: 'leetcode', totalSolved: 450, rating: 1850 },
+      { platform: 'codechef', totalSolved: 120, rating: 1600 }
+    ],
+    links: { leetcode: { username: 'testdev' } },
+    certificates: [],
+    snapshotAt: new Date().toISOString()
+  };
+
+  const scoreWithoutSnapshot = rank(candidate, baseJob);
+  const scoreWithSnapshot = rank(candidate, baseJob, snapshotWithCoding);
+
+  assert(scoreWithSnapshot.skills >= scoreWithoutSnapshot.skills, 'Coding stats snapshot should provide supporting evidence for skills');
+  assert(scoreWithSnapshot.skills <= baseJob.weights.skills, 'Skills score cannot exceed job skill weight');
+  assert(scoreWithSnapshot.projects <= baseJob.weights.projects, 'Projects score cannot exceed job project weight');
+  assert(scoreWithSnapshot.total <= 100, 'Total score cannot exceed 100');
+  assert(scoreWithSnapshot.breakdown.skillsReason.includes('Supported by profile snapshot'), 'Reasoning should mention profile snapshot');
+  assert(scoreWithSnapshot.breakdown.projectsReason.includes('Supported by profile snapshot'), 'Reasoning should mention profile snapshot');
+  console.log('✓ Test 7 passed: Profile snapshot provides supporting evidence within weight limits and is documented in reasoning.');
+}
+
 console.log('--- ALL SCORING ENGINE TESTS PASSED! ---');

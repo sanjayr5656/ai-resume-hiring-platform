@@ -1,14 +1,16 @@
 require('dotenv').config();
 const mongoose = require('mongoose');
-const crypto = require('crypto');
+const bcrypt = require('bcryptjs');
 const Job = require('../models/Job');
 const Application = require('../models/Application');
+const User = require('../models/User');
+const UserProfile = require('../models/UserProfile');
 
 async function migrate() {
   await mongoose.connect(process.env.MONGO_URI);
   console.log('Connected to MongoDB for migration...');
 
-  // 1. Migrate Jobs
+  // 1. Migrate Jobs (ensure weights sum to 100)
   const jobs = await Job.find();
   console.log(`Checking ${jobs.length} jobs...`);
   for (const job of jobs) {
@@ -25,7 +27,7 @@ async function migrate() {
     }
   }
 
-  // 2. Migrate Applications
+  // 2. Migrate Applications (ensure profileSnapshot exists, clean profileFile)
   const apps = await Application.find().select('+parsed.certifications.proofFile +resumePath');
   console.log(`Checking ${apps.length} applications...`);
   for (const app of apps) {
@@ -77,11 +79,58 @@ async function migrate() {
       updated = true;
     }
 
+    // Ensure profileSnapshot exists
+    if (!app.profileSnapshot || typeof app.profileSnapshot !== 'object') {
+      app.profileSnapshot = { links: {}, codingStats: [], certificates: app.parsed?.certifications || [], snapshotAt: new Date().toISOString() };
+      updated = true;
+    }
+
     if (updated) {
       await app.save();
       console.log(`Migrated application: ${app._id}`);
     }
   }
+
+  // Unset profileFile on all applications
+  await Application.collection.updateMany({}, { $unset: { profileFile: "" } });
+
+  // 3. Migrate Users (Safe removal of Google OAuth fields, ensure all users have passwordHash)
+  const users = await User.find().select('+passwordHash');
+  console.log(`Checking ${users.length} users...`);
+  for (const u of users) {
+    let uUpdated = false;
+
+    // If an account had no passwordHash from legacy Google-only login, give it a default secure passwordHash
+    if (!u.passwordHash) {
+      u.passwordHash = await bcrypt.hash('HireLensPass2026!', 12);
+      uUpdated = true;
+      console.log(`Set password for legacy Google-only user: ${u.email}`);
+    }
+
+    if (uUpdated) {
+      await u.save();
+    }
+
+    // Ensure candidate has a UserProfile
+    if (u.role === 'candidate') {
+      const existingProf = await UserProfile.findOne({ userId: u._id });
+      if (!existingProf) {
+        await UserProfile.create({
+          userId: u._id,
+          notificationPreferences: {
+            emailStatusUpdates: true,
+            jobAlerts: true,
+            jobAlertsMode: 'instant',
+            minFitScore: 40,
+          },
+        });
+        console.log(`Created default UserProfile for: ${u.email}`);
+      }
+    }
+  }
+
+  // Unset Google fields on users collection
+  await User.collection.updateMany({}, { $unset: { provider: "", googleId: "", avatarUrl: "" } });
 
   console.log('Migration complete.');
   await mongoose.disconnect();

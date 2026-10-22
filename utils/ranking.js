@@ -28,7 +28,8 @@ const clamp = (x, min = 0, max = 10) => Math.max(min, Math.min(max, Number(x) ||
  * Deterministic scoring engine
  * Default weights: skills: 45, projects: 30, certifications: 20, experience: 5 (sum = 100)
  */
-function rank(parsed = {}, job = {}) {
+function rank(parsed = {}, job = {}, snapshot = {}) {
+  const effectiveSnapshot = snapshot?.codingStats ? snapshot : (parsed?.profileSnapshot || {});
   const weights = {
     skills: 45,
     projects: 30,
@@ -45,6 +46,12 @@ function rank(parsed = {}, job = {}) {
   const certsList = Array.isArray(parsed.certifications) ? parsed.certifications : [];
   const expList = Array.isArray(parsed.experience) ? parsed.experience : [];
   const eduList = Array.isArray(parsed.education) ? parsed.education : [];
+
+  // Coding platform supporting evidence from profile snapshot
+  const codingStatsList = Array.isArray(effectiveSnapshot?.codingStats) ? effectiveSnapshot.codingStats : [];
+  const totalSolvedAcrossProfiles = codingStatsList.reduce((acc, s) => acc + (Number(s.totalSolved) || 0), 0);
+  const maxCodingRating = codingStatsList.reduce((max, s) => Math.max(max, Number(s.rating) || 0), 0);
+  const hasCodingProfileEvidence = totalSolvedAcrossProfiles > 0 || maxCodingRating > 0;
 
   // ================= 1. SKILLS SCORING =================
   let matchedRequiredCount = 0;
@@ -76,8 +83,14 @@ function rank(parsed = {}, job = {}) {
   }
   const niceBonus = niceSkills.length ? Math.min(0.1, (matchedNiceCount / niceSkills.length) * 0.1) : 0;
 
-  const skillScorePct = Math.min(100, (reqSkillRatio * 0.95 + niceBonus) * 100);
-  const skillsScore = Math.round((skillScorePct * weights.skills) / 100);
+  // Supporting evidence from coding platform snapshot (capped strictly within weights.skills)
+  const codingSkillsBonus = hasCodingProfileEvidence
+    ? Math.min(8, Math.max(2, Math.floor(totalSolvedAcrossProfiles / 50) + (maxCodingRating >= 1600 ? 3 : 1)))
+    : 0;
+
+  const rawSkillPct = (reqSkillRatio * 0.95 + niceBonus) * 100;
+  const skillScorePct = Math.min(100, rawSkillPct + codingSkillsBonus);
+  const skillsScore = Math.min(weights.skills, Math.round((skillScorePct * weights.skills) / 100));
 
   // ================= 2. PROJECTS SCORING =================
   // Score top 3 projects based on relevance, tech overlap, and execution complexity
@@ -99,8 +112,15 @@ function rank(parsed = {}, job = {}) {
   const avgProjectScore = evaluatedProjects.length
     ? evaluatedProjects.reduce((sum, p) => sum + p.score, 0) / evaluatedProjects.length
     : 0;
-  const projectScorePct = Math.min(100, avgProjectScore * 10);
-  const projectsScore = Math.round((projectScorePct * weights.projects) / 100);
+
+  // Supporting evidence from coding platform snapshot (capped strictly within weights.projects)
+  const codingProjectsBonus = hasCodingProfileEvidence
+    ? Math.min(8, Math.max(2, Math.floor(totalSolvedAcrossProfiles / 60) + (maxCodingRating >= 1600 ? 2 : 1)))
+    : 0;
+
+  const rawProjectPct = avgProjectScore * 10;
+  const projectScorePct = Math.min(100, rawProjectPct + codingProjectsBonus);
+  const projectsScore = Math.min(weights.projects, Math.round((projectScorePct * weights.projects) / 100));
 
   // ================= 3. CERTIFICATIONS SCORING =================
   let certScorePct = 0;
@@ -154,15 +174,21 @@ function rank(parsed = {}, job = {}) {
   confidence = Math.max(20, Math.min(95, confidence));
 
   // ================= 7. DETAILED COMPONENT REASONING =================
-  const skillsReason = `${matchedRequiredNames.length} of ${reqSkills.length} required skills matched (${Math.round(reqSkillRatio * 100)}%). ${
+  let skillsReason = `${matchedRequiredNames.length} of ${reqSkills.length} required skills matched (${Math.round(reqSkillRatio * 100)}%). ${
     matchedRequiredNames.length > 0 ? `Confirmed skills: ${matchedRequiredNames.join(', ')}.` : 'No required skills were identified.'
   } ${evidencedMatchCount > 0 ? `${evidencedMatchCount} skill(s) are reinforced by documented practical evidence.` : ''} ${
     missingRequiredNames.length > 0 ? `Missing skills: ${missingRequiredNames.join(', ')}.` : 'All required skills satisfied.'
   }`;
+  if (hasCodingProfileEvidence) {
+    skillsReason += ` Supported by profile snapshot coding evidence: ${totalSolvedAcrossProfiles} problems solved across connected platforms${maxCodingRating > 0 ? ` (peak rating: ${Math.round(maxCodingRating)})` : ''}.`;
+  }
 
-  const projectsReason = projectsList.length > 0
+  let projectsReason = projectsList.length > 0
     ? `Assessed ${projectsList.length} project(s), highlighting top relevant work: ${evaluatedProjects.map(p => `${p.name} (${Math.round(p.score * 10)}/100)`).join(', ')}.`
     : 'No relevant technical projects were identified in the resume.';
+  if (hasCodingProfileEvidence) {
+    projectsReason += ` Supported by profile snapshot verified coding track record (${totalSolvedAcrossProfiles} solved across coding platforms).`;
+  }
 
   const certificationsReason = certsList.length > 0
     ? `${certsList.length} certification(s) evaluated (${verifiedCertsCount} verified, ${certsList.filter(c => c.verificationStatus === 'proof_provided').length} proof provided, ${rejectedCertsCount} rejected).`
@@ -184,6 +210,11 @@ function rank(parsed = {}, job = {}) {
   if (evaluatedProjects.length > 0 && avgProjectScore >= 6) strengths.push(`Demonstrated practical experience across ${evaluatedProjects.length} relevant project(s)`);
   if (verifiedCertsCount > 0) strengths.push(`Verified credentials with authenticated documentation`);
   if (expYears >= minExp && minExp > 0) strengths.push(`Meets or exceeds minimum required experience (${expYears} yrs)`);
+
+  if (totalSolvedAcrossProfiles > 0) {
+    strengths.push(`Verified problem-solving track record (${totalSolvedAcrossProfiles}+ solved across coding profiles)`);
+    trustIndicator = Math.min(100, trustIndicator + 5);
+  }
 
   const gaps = [];
   if (missingRequiredNames.length > 0) gaps.push(`Missing key role requirements: ${missingRequiredNames.slice(0, 3).join(', ')}`);

@@ -2,10 +2,13 @@ const router = require('express').Router();
 const fs = require('fs');
 const Job = require('../models/Job');
 const Application = require('../models/Application');
+const User = require('../models/User');
 const { requireRole, requireAuth } = require('../middleware/auth');
 const { extractSkills, aiCheckCertificate, generateTopCandidatesSummary } = require('../controllers/ai');
 const { rank } = require('../utils/ranking');
 const { enqueueRerank, rerankJob } = require('../services/queue');
+const { notifyShortlisted, notifyRejected } = require('../services/notifications');
+const { buildProfileSnapshot } = require('../services/profileSnapshot');
 
 const asyncRoute = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
@@ -80,10 +83,48 @@ router.patch('/applications/:id/status', asyncRoute(async (req, res) => {
   if (!a || a.jobId.recruiterId.toString() !== req.user._id.toString()) {
     return res.status(404).json({ error: 'Application not found' });
   }
-  a.status = req.body.status;
+
+  const previousStatus = a.status;
+  const newStatus = req.body.status;
+  const recruiterNote = String(req.body.note || '').trim().slice(0, 500);
+
+  a.status = newStatus;
   await a.save();
+
+  // Trigger notifications only on actual status change (idempotency)
+  if (previousStatus !== newStatus && ['shortlisted', 'rejected'].includes(newStatus)) {
+    const candidate = await User.findById(a.candidateId);
+    if (candidate) {
+      const job = a.jobId;
+      setImmediate(async () => {
+        try {
+          if (newStatus === 'shortlisted') {
+            await notifyShortlisted({
+              candidate,
+              jobTitle: job.title,
+              company: job.company,
+              recruiterNote,
+              applicationId: a._id.toString(),
+            });
+          } else {
+            await notifyRejected({
+              candidate,
+              jobTitle: job.title,
+              company: job.company,
+              recruiterNote,
+              applicationId: a._id.toString(),
+            });
+          }
+        } catch (err) {
+          console.error('[Notification] Status change notification failed:', err.message);
+        }
+      });
+    }
+  }
+
   res.json(a);
 }));
+
 
 // 6. Run AI Certificate Check (Section 3 & 4)
 router.post('/applications/:id/certifications/:certId/ai-check', asyncRoute(async (req, res) => {
@@ -231,6 +272,49 @@ router.get('/applications/:id/resume', asyncRoute(async (req, res) => {
     if (err && !res.headersSent) {
       res.status(500).json({ error: 'Failed to download resume file' });
     }
+  });
+}));
+
+// 10. Recruiter Applicant Detail (returns resume plus profileSnapshot)
+router.get('/applications/:id', asyncRoute(async (req, res) => {
+  const a = await Application.findById(req.params.id)
+    .populate('candidateId', 'name email')
+    .populate('jobId');
+  if (!a || !a.jobId || a.jobId.recruiterId.toString() !== req.user._id.toString()) {
+    return res.status(404).json({ error: 'Application not found' });
+  }
+  res.json(a);
+}));
+
+// 11. Recruiter Refresh Applicant Stats (re-fetches live stats with cooldown)
+const refreshCooldowns = new Map();
+
+router.post('/applications/:id/refresh-stats', asyncRoute(async (req, res) => {
+  const a = await Application.findById(req.params.id)
+    .populate('jobId');
+  if (!a || !a.jobId || a.jobId.recruiterId.toString() !== req.user._id.toString()) {
+    return res.status(404).json({ error: 'Application not found' });
+  }
+
+  const cooldownKey = `${req.user._id}_${a._id}`;
+  const lastRefresh = refreshCooldowns.get(cooldownKey);
+  const now = Date.now();
+  const cooldownSec = Number(process.env.STATS_RATE_LIMIT_MINUTES || 1) * 60;
+  const cooldownMs = Math.min(60000, cooldownSec * 1000); // 60s cooldown limit
+
+  if (lastRefresh && (now - lastRefresh) < cooldownMs) {
+    const remaining = Math.ceil((cooldownMs - (now - lastRefresh)) / 1000);
+    return res.status(429).json({ error: `Please wait ${remaining}s before refreshing stats again.` });
+  }
+
+  // Fetch latest snapshot for candidate
+  const latestSnapshot = await buildProfileSnapshot(a.candidateId, a.parsed?.certifications || []);
+  refreshCooldowns.set(cooldownKey, now);
+
+  res.json({
+    applicationSnapshot: a.profileSnapshot,
+    latestSnapshot,
+    refreshedAt: new Date().toISOString()
   });
 }));
 

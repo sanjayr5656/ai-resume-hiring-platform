@@ -1,8 +1,16 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const { enqueueEmail } = require('../services/email/sender');
+const { welcomeEmail } = require('../services/email/templates');
 
-const safeUser = user => ({ id: user._id, name: user.name, email: user.email, role: user.role, company: user.company });
+const safeUser = user => ({
+  id: user._id,
+  name: user.name,
+  email: user.email,
+  role: user.role,
+  company: user.company,
+});
 
 function tokenFor(user) {
   return jwt.sign(
@@ -28,6 +36,24 @@ exports.register = async (req, res) => {
       role,
       company: role === 'recruiter' ? company.trim() : undefined
     });
+
+    // Send welcome email to the newly registered email ID
+    try {
+      const emailTemplate = welcomeEmail({
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        company: user.company,
+      });
+      enqueueEmail({
+        to: user.email,
+        ...emailTemplate,
+        idempotencyKey: `welcome-${user._id}`,
+      }).catch(err => console.error('[Auth] Welcome email enqueue error:', err.message));
+    } catch (err) {
+      console.error('[Auth] Welcome email failed to generate:', err.message);
+    }
+
     res.status(201).json({ token: tokenFor(user), user: safeUser(user) });
   } catch (e) {
     res.status(e.code === 11000 ? 409 : 500).json({ error: e.code === 11000 ? 'Email is already registered' : 'Could not register account' });
@@ -37,7 +63,10 @@ exports.register = async (req, res) => {
 exports.login = async (req, res) => {
   try {
     const user = await User.findOne({ email: (req.body.email || '').toLowerCase().trim() }).select('+passwordHash');
-    if (!user || !await bcrypt.compare(req.body.password || '', user.passwordHash)) {
+    if (!user) {
+      return res.status(401).json({ error: 'Email or password is incorrect' });
+    }
+    if (!await bcrypt.compare(req.body.password || '', user.passwordHash || '')) {
       return res.status(401).json({ error: 'Email or password is incorrect' });
     }
     res.json({ token: tokenFor(user), user: safeUser(user) });

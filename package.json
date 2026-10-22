@@ -6,7 +6,12 @@
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
-    "seed": "node scripts/seed.js"
+    "test": "node tests/adapters.test.js && node tests/notifications_templates.test.js && node tests/scoring.test.js",
+    "seed": "node scripts/seed.js",
+    "migrate": "node scripts/migrate.js",
+    "reset:preview": "node scripts/resetData.js --preview",
+    "reset:data": "node scripts/resetData.js",
+    "reset:restore": "node scripts/restoreData.js"
   },
   "keywords": [],
   "author": "",
@@ -14,14 +19,18 @@
   "type": "commonjs",
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
+    "axios": "^1.20.0",
     "bcryptjs": "^3.0.2",
+    "cheerio": "^1.2.0",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
-    "mongoose": "^9.9.3",
+    "express-rate-limit": "^8.7.1",
     "jsonwebtoken": "^9.0.2",
-    "nodemon": "^3.1.10",
+    "mongoose": "^9.9.3",
     "multer": "^2.2.0",
+    "nodemailer": "^10.1.7",
+    "nodemon": "^3.1.10",
     "pdf-parse": "^1.1.1"
   }
 }

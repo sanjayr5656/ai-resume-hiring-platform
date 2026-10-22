@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const Job = require('../models/Job');
 const Application = require('../models/Application');
+const User = require('../models/User');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { parsePdf } = require('../controllers/parser');
 const { extractResume } = require('../controllers/ai');
@@ -12,6 +13,9 @@ const { skillGap } = require('../utils/skills');
 const { rank } = require('../utils/ranking');
 const { enqueueRerank, rerankJob } = require('../services/queue');
 const { resolveProofFilePath } = require('../utils/proofs');
+const { buildProfileSnapshot } = require('../services/profileSnapshot');
+const { notifyApplicationReceived, notifyNewJob } = require('../services/notifications');
+
 
 const maxUploadMb = Number(process.env.MAX_UPLOAD_MB || 10);
 const maxFileSizeBytes = maxUploadMb * 1024 * 1024;
@@ -79,6 +83,13 @@ router.post('/', requireAuth, requireRole('recruiter'), asyncRoute(async (req, r
     minExperience,
     weights: initialWeights
   });
+  setImmediate(async () => {
+    try {
+      await notifyNewJob(job);
+    } catch (err) {
+      console.error('[Notification] New job alert failed:', err.message);
+    }
+  });
   res.status(201).json(job);
 }));
 
@@ -138,7 +149,15 @@ router.post('/:id/apply', requireAuth, requireRole('candidate'), resumeUpload.si
   const storedPath = path.join(uploadDir, storedName);
   fs.writeFileSync(storedPath, req.file.buffer);
 
-  const initialScores = rank(parsed, job);
+  // Snapshot candidate's profiles, live coding stats and certificates (JSON only, no file)
+  let profileSnapshot = { links: {}, codingStats: [], certificates: parsed.certifications, snapshotAt: new Date().toISOString() };
+  try {
+    profileSnapshot = await buildProfileSnapshot(req.user._id, parsed.certifications);
+  } catch (err) {
+    console.error('[Application] Failed to build profile snapshot:', err.message);
+  }
+
+  const initialScores = rank(parsed, job, profileSnapshot);
   const initialGaps = skillGap(job.requiredSkills, parsed.skills, job.title);
 
   const app = await Application.create({
@@ -150,11 +169,27 @@ router.post('/:id/apply', requireAuth, requireRole('candidate'), resumeUpload.si
     resumeText,
     parsed,
     skillGap: initialGaps,
-    scores: initialScores
+    scores: initialScores,
+    profileSnapshot,
   });
 
   // Re-rank all applicants for this job in background
   enqueueRerank(job._id);
+
+  // Send application received notification (Feature 3)
+  setImmediate(async () => {
+    try {
+      const candidateUser = await User.findById(req.user._id);
+      await notifyApplicationReceived({
+        candidate: candidateUser || req.user,
+        jobTitle: job.title,
+        company: job.company,
+        applicationId: app._id.toString(),
+      });
+    } catch (err) {
+      console.error('[Notification] Application received notification failed:', err.message);
+    }
+  });
 
   res.status(201).json(app);
 }));
@@ -165,6 +200,13 @@ router.get('/my/applications', requireAuth, requireRole('candidate'), asyncRoute
     .populate('jobId', 'title company status requiredSkills niceToHaveSkills')
     .sort({ createdAt: -1 });
   res.json(list);
+}));
+
+router.get('/my/applications/:applicationId', requireAuth, requireRole('candidate'), asyncRoute(async (req, res) => {
+  const a = await Application.findOne({ _id: req.params.applicationId, candidateId: req.user._id })
+    .populate('jobId', 'title company status requiredSkills niceToHaveSkills');
+  if (!a) return res.status(404).json({ error: 'Application not found' });
+  res.json(a);
 }));
 
 // 8. Download resume
@@ -322,6 +364,9 @@ router.post('/applications/:applicationId/certifications/:certificationId/proof'
   // Handle credentialId & credentialUrl
   if (req.body.credentialId !== undefined) {
     c.credentialId = String(req.body.credentialId).trim();
+    if (c.credentialId && c.verificationStatus === 'claimed') {
+      c.verificationStatus = 'proof_provided';
+    }
   }
   if (req.body.credentialUrl !== undefined) {
     const credUrl = String(req.body.credentialUrl).trim();
@@ -329,7 +374,9 @@ router.post('/applications/:applicationId/certifications/:certificationId/proof'
       return res.status(400).json({ error: 'Credential URL must be a valid http/https link' });
     }
     c.credentialUrl = credUrl;
-    if (credUrl) c.verificationStatus = 'proof_provided';
+    if (credUrl && c.verificationStatus === 'claimed') {
+      c.verificationStatus = 'proof_provided';
+    }
   }
 
   const job = await Job.findById(a.jobId);
