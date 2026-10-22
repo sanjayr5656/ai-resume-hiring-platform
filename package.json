@@ -4,6 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "build": "cd frontend && npm install && npm run build",
     "start": "node index.js",
     "dev": "nodemon index.js",
     "test": "node tests/adapters.test.js && node tests/notifications_templates.test.js && node tests/scoring.test.js",
