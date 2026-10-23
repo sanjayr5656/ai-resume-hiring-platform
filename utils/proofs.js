@@ -26,10 +26,22 @@ function resolveProofFilePath(fileRecord) {
  * Extract readable text from proof file (PDF or text)
  */
 async function extractProofText(fileRecord) {
+  if (!fileRecord) return '';
+
+  const mime = fileRecord.mimeType || '';
+  if (fileRecord.dataBase64 && (mime === 'application/pdf' || (fileRecord.originalName && fileRecord.originalName.toLowerCase().endsWith('.pdf')))) {
+    try {
+      const buffer = Buffer.from(fileRecord.dataBase64, 'base64');
+      const parsed = await pdfParse(buffer);
+      return (parsed.text || '').trim();
+    } catch (err) {
+      console.warn(`Failed to parse base64 PDF proof:`, err.message);
+    }
+  }
+
   const diskPath = resolveProofFilePath(fileRecord);
   if (!diskPath || !fs.existsSync(diskPath)) return '';
 
-  const mime = fileRecord.mimeType || '';
   const ext = path.extname(diskPath).toLowerCase();
 
   if (mime === 'application/pdf' || ext === '.pdf') {

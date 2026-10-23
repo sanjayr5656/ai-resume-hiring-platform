@@ -2,6 +2,7 @@ const router = require('express').Router();
 const multer = require('multer');
 const crypto = require('crypto');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const Job = require('../models/Job');
 const Application = require('../models/Application');
@@ -19,6 +20,31 @@ const { notifyApplicationReceived, notifyNewJob } = require('../services/notific
 
 const maxUploadMb = Number(process.env.MAX_UPLOAD_MB || 10);
 const maxFileSizeBytes = maxUploadMb * 1024 * 1024;
+
+function safelySaveFile(subfolder, filename, buffer) {
+  const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+  const primaryDir = isServerless
+    ? path.join(os.tmpdir(), 'uploads', subfolder)
+    : path.join(__dirname, '..', 'uploads', subfolder);
+
+  try {
+    fs.mkdirSync(primaryDir, { recursive: true });
+    const fullPath = path.join(primaryDir, filename);
+    fs.writeFileSync(fullPath, buffer);
+    return fullPath;
+  } catch (err) {
+    try {
+      const fallbackDir = path.join(os.tmpdir(), 'uploads', subfolder);
+      fs.mkdirSync(fallbackDir, { recursive: true });
+      const fallbackPath = path.join(fallbackDir, filename);
+      fs.writeFileSync(fallbackPath, buffer);
+      return fallbackPath;
+    } catch (fallbackErr) {
+      console.warn(`[safelySaveFile] Disk write skipped: ${fallbackErr.message}`);
+      return '';
+    }
+  }
+}
 
 const resumeUpload = multer({
   storage: multer.memoryStorage(),
@@ -143,11 +169,8 @@ router.post('/:id/apply', requireAuth, requireRole('candidate'), resumeUpload.si
     c.auditTrail = [];
   });
 
-  const uploadDir = path.join(__dirname, '..', 'uploads', 'resumes');
-  fs.mkdirSync(uploadDir, { recursive: true });
   const storedName = `${crypto.randomUUID()}.pdf`;
-  const storedPath = path.join(uploadDir, storedName);
-  fs.writeFileSync(storedPath, req.file.buffer);
+  const storedPath = safelySaveFile('resumes', storedName, req.file.buffer);
 
   // Snapshot candidate's profiles, live coding stats and certificates (JSON only, no file)
   let profileSnapshot = { links: {}, codingStats: [], certificates: parsed.certifications, snapshotAt: new Date().toISOString() };
@@ -165,6 +188,7 @@ router.post('/:id/apply', requireAuth, requireRole('candidate'), resumeUpload.si
     candidateId: req.user._id,
     resumeFile: req.file.originalname,
     resumePath: storedPath,
+    resumeBase64: req.file.buffer.toString('base64'),
     resumeHash: crypto.createHash('sha256').update(req.file.buffer).digest('hex'),
     resumeText,
     parsed,
@@ -211,13 +235,19 @@ router.get('/my/applications/:applicationId', requireAuth, requireRole('candidat
 
 // 8. Download resume
 router.get('/my/applications/:applicationId/resume', requireAuth, requireRole('candidate'), asyncRoute(async (req, res) => {
-  const a = await Application.findOne({ _id: req.params.applicationId, candidateId: req.user._id }).select('+resumePath');
-  if (!a?.resumePath || !fs.existsSync(a.resumePath)) return res.status(404).json({ error: 'Resume file not found' });
-  res.download(a.resumePath, a.resumeFile || 'resume.pdf', (err) => {
-    if (err && !res.headersSent) {
-      res.status(500).json({ error: 'Failed to download resume file' });
-    }
-  });
+  const a = await Application.findOne({ _id: req.params.applicationId, candidateId: req.user._id }).select('+resumePath +resumeBase64');
+  if (!a) return res.status(404).json({ error: 'Application not found' });
+
+  if (a.resumeBase64) {
+    const buffer = Buffer.from(a.resumeBase64, 'base64');
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(a.resumeFile || 'resume.pdf')}"`);
+    return res.send(buffer);
+  }
+  if (a.resumePath && fs.existsSync(a.resumePath)) {
+    return res.download(a.resumePath, a.resumeFile || 'resume.pdf');
+  }
+  res.status(404).json({ error: 'Resume file not found' });
 }));
 
 // 9. Add a Certification / Document to Application (Section 2)
@@ -235,17 +265,13 @@ router.post('/applications/:applicationId/certifications', requireAuth, requireR
     return res.status(400).json({ error: 'Credential URL must be a valid http/https link' });
   }
 
-  const proofsDir = path.join(__dirname, '..', 'uploads', 'proofs');
-  fs.mkdirSync(proofsDir, { recursive: true });
-
   const proofFiles = [];
   if (req.files && req.files.length > 0) {
     for (const f of req.files) {
       const fileId = crypto.randomUUID();
       const sanitizedName = (f.originalname || 'document').replace(/[^a-zA-Z0-9._-]/g, '_');
       const diskFilename = `${fileId}_${sanitizedName}`;
-      const diskPath = path.join(proofsDir, diskFilename);
-      fs.writeFileSync(diskPath, f.buffer);
+      const diskPath = safelySaveFile('proofs', diskFilename, f.buffer);
 
       const sha256 = crypto.createHash('sha256').update(f.buffer).digest('hex');
       proofFiles.push({
@@ -254,6 +280,7 @@ router.post('/applications/:applicationId/certifications', requireAuth, requireR
         mimeType: f.mimetype,
         size: f.size,
         path: diskPath,
+        dataBase64: f.buffer.toString('base64'),
         sha256,
         uploadedAt: new Date()
       });
@@ -333,9 +360,6 @@ router.post('/applications/:applicationId/certifications/:certificationId/proof'
     return res.status(400).json({ error: 'This certification is already verified and cannot be edited.' });
   }
 
-  const proofsDir = path.join(__dirname, '..', 'uploads', 'proofs');
-  fs.mkdirSync(proofsDir, { recursive: true });
-
   if (!Array.isArray(c.proofFiles)) c.proofFiles = [];
 
   // Handle uploaded files
@@ -344,8 +368,7 @@ router.post('/applications/:applicationId/certifications/:certificationId/proof'
       const fileId = crypto.randomUUID();
       const sanitizedName = (f.originalname || 'document').replace(/[^a-zA-Z0-9._-]/g, '_');
       const diskFilename = `${fileId}_${sanitizedName}`;
-      const diskPath = path.join(proofsDir, diskFilename);
-      fs.writeFileSync(diskPath, f.buffer);
+      const diskPath = safelySaveFile('proofs', diskFilename, f.buffer);
 
       const sha256 = crypto.createHash('sha256').update(f.buffer).digest('hex');
       c.proofFiles.push({
@@ -354,6 +377,7 @@ router.post('/applications/:applicationId/certifications/:certificationId/proof'
         mimeType: f.mimetype,
         size: f.size,
         path: diskPath,
+        dataBase64: f.buffer.toString('base64'),
         sha256,
         uploadedAt: new Date()
       });

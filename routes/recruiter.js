@@ -261,18 +261,20 @@ router.post('/jobs/:id/duplicates', asyncRoute(async (req, res) => {
 
 // 9. Download Candidate Resume
 router.get('/applications/:id/resume', asyncRoute(async (req, res) => {
-  const a = await Application.findById(req.params.id).select('+resumePath').populate('jobId');
+  const a = await Application.findById(req.params.id).select('+resumePath +resumeBase64').populate('jobId');
   if (!a || !a.jobId || a.jobId.recruiterId.toString() !== req.user._id.toString()) {
     return res.status(404).json({ error: 'Resume not found' });
   }
-  if (!a.resumePath || !fs.existsSync(a.resumePath)) {
-    return res.status(404).json({ error: 'Resume file not found' });
+  if (a.resumeBase64) {
+    const buffer = Buffer.from(a.resumeBase64, 'base64');
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(a.resumeFile || 'resume.pdf')}"`);
+    return res.send(buffer);
   }
-  res.download(a.resumePath, a.resumeFile || 'resume.pdf', (err) => {
-    if (err && !res.headersSent) {
-      res.status(500).json({ error: 'Failed to download resume file' });
-    }
-  });
+  if (a.resumePath && fs.existsSync(a.resumePath)) {
+    return res.download(a.resumePath, a.resumeFile || 'resume.pdf');
+  }
+  res.status(404).json({ error: 'Resume file not found' });
 }));
 
 // 10. Recruiter Applicant Detail (returns resume plus profileSnapshot)

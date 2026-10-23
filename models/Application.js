@@ -6,6 +6,7 @@ const proofFileSchema = new mongoose.Schema({
   mimeType: { type: String, required: true },
   size: { type: Number, required: true },
   path: { type: String, default: '' },
+  dataBase64: { type: String, select: false },
   sha256: { type: String, required: true },
   uploadedAt: { type: Date, default: Date.now }
 }, { _id: false });
@@ -58,6 +59,7 @@ const applicationSchema = new mongoose.Schema({
   candidateId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
   resumeFile: String,
   resumePath: { type: String, select: false },
+  resumeBase64: { type: String, select: false },
   resumeHash: String,
   resumeText: String,
   parsed: {
